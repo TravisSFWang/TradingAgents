@@ -2,7 +2,7 @@
 
 > 本文件用于把之前在 Cowork（本地 agent）里完成的工作和上下文，交接给 Claude Code。
 > 放在仓库根目录 `C:\trading\TradingAgents\CLAUDE.md`，Claude Code 启动后会自动读取，作为项目记忆。
-> 最后更新：2026-06-22（见 §15、§16 本次会话变更日志）
+> 最后更新：2026-06-22（见 §15、§16、§17 本次会话变更日志）
 
 ---
 
@@ -485,8 +485,39 @@ These are intraday-verified levels; reconcile with daily indicators, do not over
 - 分钟聚合 3 例：60min跨午休不拼错（断言相邻bucket时间不连续）、30min的OHLCV聚合数学（open=首根开/close=末根收/high=max/low=min/vol=sum）、跨两个交易日不互相拼接。
 - rangebreaks 3 例：只标真实缺失日、无缺口返空、空Series不崩。
 - 指标 6 例：MA/BOLL/VWMA/MACD/RSI 在合成上涨趋势数据上的方向性/范围合理性，及未选任何指标返回空dict。
-- 验证：`./venv/Scripts/python.exe -m pytest tests/test_chart_data.py` 12/12 通过；全量 `tests/` 跑 345 通过 + 4 个与本次改动无关的既有失败（`test_dataflows_config.py`/`test_memory_log.py`，依赖网络/yfinance，本次未触碰这些文件）。
+- 验证：`./venv/Scripts/python.exe -m pytest tests/test_chart_data.py` 12/12 通过；全量 `tests/` 跑 345 通过 + 4 个当时未修的既有失败（`test_dataflows_config.py`/`test_memory_log.py`）。这 4 个后来在 §17 的上游同步会话里查清根因并修复，详见该节。
 
 ### 已知限制（fail-open，不阻塞）
 - 分钟周期K线仅 A股可用（非A股/无本地vipdoc/pytdx不通 → 提示"该周期暂无数据"，与 §13 日内结构工具同一降级哲学）。
 - 本地分钟线历史仅到 2026-03（TDX软件运行后才积累，详见 §14 数据覆盖核查），分析较早日期时分钟周期图可能为空，日/周/月线不受影响。
+
+---
+
+## 17. 同步官方 upstream v0.3.0（2026-06-22 续，Opus 4.8）
+
+> 背景：项目 fork 到 `https://github.com/TravisSFWang/TradingAgents`，发现官方当天发布 v0.3.0（39个提交）。流程：先建 GitHub 远程结构 → checkpoint 本地未提交工作 → 在隔离分支合并上游 → 逐个解决冲突 → 测试全绿 → 快进 main。
+
+### 远程结构变更
+- `origin` 改名为 `upstream`（指向 `TauricResearch/TradingAgents`，只用来拉官方更新，不再 push）。
+- 新增 `origin` 指向 `https://github.com/TravisSFWang/TradingAgents.git`（用户自己的 Fork，未来 push/PR 都走这里）。
+- 本仓库设了 repo-local git 身份（非 `--global`）：`user.name=TravisSFWang`、`user.email=traviswang97@icloud.com`。
+
+### v0.3.0 关键内容（详见仓库根目录 `CHANGELOG.md`）
+- **Provider 注册表重构**：`llm_clients/` 整个目录改成统一 provider spec 模式，**官方原生加入了 Kimi/Moonshot、NVIDIA NIM、Groq、Mistral、Amazon Bedrock**。Kimi 的 provider key 是 `"kimi"`，环境变量 `MOONSHOT_API_KEY`，base_url `https://api.moonshot.ai/v1`，模型目录暂时是"仅自定义"（`model_catalog.py` 里 `_CUSTOM_ONLY`，没有下拉项，得手填 model id）。**这意味着之前讨论的"自己接 Kimi"不用做了，填 key 直接能用**。
+- **验证过的数据访问契约**："配置的 vendor 链就是唯一解析路径，不再悄悄回退到未选中的 vendor"（`interface.py::route_to_vendor` 改写）。`VendorError` 类型化、过期 OHLCV 拒绝、look-ahead-safe 新闻窗口。
+- **结构化输出加固**："thinking 模型解析失败时退化为自由文本"——官方版本的退化兜底，跟 CLAUDE.md §15 记的 DeepSeek 退化 bug 是同一类问题的官方修复。
+- 移除了 `analyst_concurrency_limit`（no-op 配置项，本项目未引用，无影响）；移除 `uv.lock`；新增 CI gate（GitHub Actions：pytest + ruff + 装包烟测，Python 3.10–3.13）。
+
+### 冲突解决（4 个本地 patch 过的官方文件，全部跟上游本次改动重叠）
+1. **`market_analyst.py` / `agent_utils.py`**：纯 import 列表冲突（官方新增 `get_instrument_context_from_state`/`__all__`/`prediction_markets_tools`，本地新增 `intraday_structure_tools`），合并即可，无逻辑分歧。
+2. **`interface.py`（vendor 路由层，官方这次改动最大，148行）**：保留了 `ASHARE_VENDOR_BEGIN/END` 自动生成块（`install_ashare_patch.py` 注入、调 `ashare_vendor.register()`）。核对后确认：`register()` 里 `ASHARE_VENDOR_PRIORITY` 路径（往 `data_vendors[cat]` 配置字符串前面拼 `"ashare,"`）跟新版"严格按配置链路由"完全兼容——新路由本来就是把 `data_vendors` 字符串按逗号拆开做 vendor_chain，我们的拼接方式正好命中这个契约。顺手删了 `register.py` 里一行已经死掉的 `itf.VENDOR_LIST.insert(0, "ashare")`（新路由根本不读模块级 `VENDOR_LIST`，全仓库搜索确认它现在是孤儿变量）。
+3. **`trading_graph.py`（真正的决策冲突，不是机械合并）**：官方修了 `_fetch_returns` 里 yfinance 的 symbol 映射 bug（#984，如 XAUUSD→GC=F），但方案仍是走 yfinance。**保留了本地版本**（结算改走 `ashare_vendor.market_data.get_close_series`，非A股代码不回退雅虎）——这是 CLAUDE.md §9 记录过的刻意产品决定，不是待修 bug，合并时不该被上游修复悄悄覆盖回去。留了行注释：以后恢复美股结算源（§10 末项）时，记得把 #984 的 normalize_symbol 映射一并接回来。顺手删了因此变成死代码的 `import yfinance as yf` 和 `normalize_symbol` import。
+
+### 测试：4 个既有失败一并查清楚根因并修复（不是这次合并引入的新问题，但根因跟今天动的代码同源）
+- **`test_dataflows_config.py` 两个**：根因是 `ashare_vendor.register()` 在 import 时**全局原地改了 `DEFAULT_CONFIG`**（往 `data_vendors[cat]` 拼 `"ashare,"`）——这是刻意设计、承重的机制（保证任何地方 `config = DEFAULT_CONFIG.copy()` 都自动带上 A股优先级），不能改成"只调 `set_config()`"（那样 `TradingAgentsGraph.__init__` 后续的 `set_config(self.config)` 会用纯净默认值覆盖回去，A股优先级在真实运行中会失效）。改法：把测试里硬编码的字面值 `"yfinance"` 换成运行时读到的 baseline 再比较——这两个测试本来测的是"深拷贝隔离"语义，不应该绑死具体 vendor 字符串，换法对任何未来的默认值定制都更稳健，不只是为了兼容我们。
+- **`test_memory_log.py` 两个**：跟 `trading_graph.py` 那个决策冲突同根——这两个测试 mock 的是 `yfinance.Ticker`，但本地 `_fetch_returns` 对非A股代码根本不调 yfinance，mock 是死的。同组里另外两个测试碰巧没暴露问题，是因为它们断言的结果本来就是 `(None, None, None)`，跟"非A股直接返回 None"撞车蒙混过关。把失败的两个改成 mock `ashare_vendor.market_data.get_close_series`，ticker 换成真实A股代码（600519），让测试真正跑到结算逻辑上。
+- 验证：`./venv/Scripts/python.exe -m pytest tests/` **529 passed, 1 skipped**（可选依赖 `langchain-aws`，装了才能用 Bedrock）。另做了端到端 smoke test：`TradingAgentsGraph` 实例化成功，`data_vendors` 实际值确认是 `ashare,yfinance`（4个类别）+ `fred`/`polymarket`（不受影响，符合预期）。
+
+### 合并落地
+- 流程：checkpoint commit on `main`（5843cf2）→ 开 `sync-upstream-v0.3.0` 分支合并上游 → 解决4个冲突 → 测试全绿 → 修4个既有失败 → `git checkout main && git merge sync-upstream-v0.3.0 --ff-only`（纯 fast-forward，无新冲突）→ 删除已合并的临时分支。
+- `main` 现在领先 `upstream/main` 3 个提交（checkpoint + merge + test fixes），未 push 到任何远程。
