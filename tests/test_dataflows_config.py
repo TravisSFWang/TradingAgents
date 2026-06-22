@@ -15,12 +15,18 @@ class DataflowsConfigIsolationTests(unittest.TestCase):
         set_config(copy.deepcopy(default_config.DEFAULT_CONFIG))
 
     def test_get_config_returns_deep_copy(self):
+        # Compare against the live baseline rather than hardcoding "yfinance":
+        # this fork's ashare_vendor prepends "ashare," to the default vendor
+        # chain at import time, so the actual baseline isn't the bare upstream
+        # default. The isolation behavior under test (mutating one copy must
+        # not affect the next) holds regardless of what that baseline is.
+        baseline = get_config()["data_vendors"]["core_stock_apis"]
         cfg = get_config()
         cfg["data_vendors"]["core_stock_apis"] = "alpha_vantage"
         cfg["tool_vendors"]["get_stock_data"] = "alpha_vantage"
 
         fresh = get_config()
-        self.assertEqual(fresh["data_vendors"]["core_stock_apis"], "yfinance")
+        self.assertEqual(fresh["data_vendors"]["core_stock_apis"], baseline)
         self.assertNotIn("get_stock_data", fresh["tool_vendors"])
 
     def test_set_config_does_not_alias_caller_nested_dicts(self):
@@ -38,6 +44,9 @@ class DataflowsConfigIsolationTests(unittest.TestCase):
         self.assertEqual(fresh["tool_vendors"]["get_stock_data"], "alpha_vantage")
 
     def test_partial_nested_update_preserves_existing_defaults(self):
+        # See test_get_config_returns_deep_copy for why this compares against
+        # the live baseline instead of hardcoding "yfinance".
+        baseline = get_config()["data_vendors"]
         set_config(
             {
                 "data_vendors": {
@@ -48,9 +57,9 @@ class DataflowsConfigIsolationTests(unittest.TestCase):
 
         fresh = get_config()
         self.assertEqual(fresh["data_vendors"]["core_stock_apis"], "alpha_vantage")
-        self.assertEqual(fresh["data_vendors"]["technical_indicators"], "yfinance")
-        self.assertEqual(fresh["data_vendors"]["fundamental_data"], "yfinance")
-        self.assertEqual(fresh["data_vendors"]["news_data"], "yfinance")
+        self.assertEqual(fresh["data_vendors"]["technical_indicators"], baseline["technical_indicators"])
+        self.assertEqual(fresh["data_vendors"]["fundamental_data"], baseline["fundamental_data"])
+        self.assertEqual(fresh["data_vendors"]["news_data"], baseline["news_data"])
 
     def test_nested_dict_updates_merge_one_level_deep(self):
         set_config({"tool_vendors": {"get_stock_data": "alpha_vantage"}})

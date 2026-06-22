@@ -487,16 +487,18 @@ class TestDeferredReflection:
     # TradingAgentsGraph._fetch_returns
 
     def test_fetch_returns_valid_ticker(self):
+        """Fork divergence: this fork's _fetch_returns settles via
+        ashare_vendor.market_data.get_close_series, not yfinance (CLAUDE.md §9) —
+        mock that instead of yfinance.Ticker, and use an A-share ticker so the
+        settlement path is actually exercised rather than short-circuiting."""
         stock_prices = [100.0, 102.0, 104.0, 103.0, 105.0, 106.0]
         spy_prices   = [400.0, 402.0, 404.0, 403.0, 405.0, 406.0]
         mock_graph = MagicMock(spec=TradingAgentsGraph)
-        with patch("yfinance.Ticker") as mock_ticker_cls:
-            def _make_ticker(sym):
-                m = MagicMock()
-                m.history.return_value = _price_df(spy_prices if sym == "SPY" else stock_prices)
-                return m
-            mock_ticker_cls.side_effect = _make_ticker
-            raw, alpha, days = TradingAgentsGraph._fetch_returns(mock_graph, "NVDA", "2026-01-05")
+        with patch("ashare_vendor.market_data.get_close_series") as mock_closes:
+            mock_closes.side_effect = lambda sym, *a, **k: pd.Series(
+                spy_prices if sym == "SPY" else stock_prices
+            )
+            raw, alpha, days = TradingAgentsGraph._fetch_returns(mock_graph, "600519", "2026-01-05")
         assert raw is not None and alpha is not None and days is not None
         assert isinstance(raw, float) and isinstance(alpha, float) and isinstance(days, int)
         assert days == 5
@@ -522,17 +524,18 @@ class TestDeferredReflection:
         assert raw is None and alpha is None and days is None
 
     def test_fetch_returns_spy_shorter_than_stock(self):
-        """SPY having fewer rows than the stock must not raise IndexError."""
+        """SPY having fewer rows than the stock must not raise IndexError.
+
+        Mocks ashare_vendor.market_data.get_close_series — see
+        test_fetch_returns_valid_ticker for why."""
         stock_prices = [100.0, 102.0, 104.0, 103.0, 105.0, 106.0]
         spy_prices   = [400.0, 402.0, 403.0]
         mock_graph = MagicMock(spec=TradingAgentsGraph)
-        with patch("yfinance.Ticker") as mock_ticker_cls:
-            def _make_ticker(sym):
-                m = MagicMock()
-                m.history.return_value = _price_df(spy_prices if sym == "SPY" else stock_prices)
-                return m
-            mock_ticker_cls.side_effect = _make_ticker
-            raw, alpha, days = TradingAgentsGraph._fetch_returns(mock_graph, "NVDA", "2026-01-05")
+        with patch("ashare_vendor.market_data.get_close_series") as mock_closes:
+            mock_closes.side_effect = lambda sym, *a, **k: pd.Series(
+                spy_prices if sym == "SPY" else stock_prices
+            )
+            raw, alpha, days = TradingAgentsGraph._fetch_returns(mock_graph, "600519", "2026-01-05")
         assert raw is not None and alpha is not None and days is not None
         assert days == 2
 
