@@ -60,8 +60,6 @@ def register():
 
     for method, fn in impls.items():
         itf.VENDOR_METHODS.setdefault(method, {})["ashare"] = fn
-    if "ashare" not in itf.VENDOR_LIST:
-        itf.VENDOR_LIST.insert(0, "ashare")
 
     # 默认把 ashare 放到各类别 vendor 链最前（A股走 ashare，
     # 非A股代码 ashare 会抛 NoMarketDataError，自动落到 yfinance）
