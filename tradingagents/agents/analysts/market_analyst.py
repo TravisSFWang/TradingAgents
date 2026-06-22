@@ -2,6 +2,7 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from tradingagents.agents.utils.agent_utils import (
     get_instrument_context_from_state,
     get_indicators,
+    get_intraday_structure,
     get_language_instruction,
     get_stock_data,
     get_verified_market_snapshot,
@@ -19,6 +20,7 @@ def create_market_analyst(llm):
             get_stock_data,
             get_indicators,
             get_verified_market_snapshot,
+            get_intraday_structure,  # A股日内微观结构（§13），非A股自动返回提示
         ]
 
         system_message = (
@@ -47,6 +49,8 @@ Volume-Based Indicators:
 - vwma: VWMA: A moving average weighted by volume. Usage: Confirm trends by integrating price action with volume data. Tips: Watch for skewed results from volume spikes; use in combination with other volume analyses.
 
 - Select indicators that provide diverse and complementary information. Avoid redundancy (e.g., do not select both rsi and stochrsi). Also briefly explain why they are suitable for the given market context. When you tool call, please use the exact name of the indicators provided above as they are defined parameters, otherwise your call will fail. Please make sure to call get_stock_data first to retrieve the CSV that is needed to generate indicators. Then use get_indicators with the specific indicator names.
+
+For short-term entry/exit precision, you MUST call get_intraday_structure once for this ticker and date. Use its volume-profile POC and value area as intraday-verified support/resistance levels, fold its intraday character (accumulation/distribution) and limit-board read into your timing discussion, and let its intraday-volatility line inform stop placement under T+1. Treat its levels as tool-verified (same authority as get_verified_market_snapshot); reconcile with daily indicators rather than overriding the daily trend. If it returns a "not available" message, note that briefly and continue.
 
 Before writing the final report, call get_verified_market_snapshot for this ticker and the current date, and treat it as the source of truth for any exact OHLCV, price-level, or indicator-value claim. If another tool's output conflicts with the verified snapshot, flag the discrepancy rather than inventing a reconciled number. Do not claim historical validation, support/resistance bounces, or exact percentage moves unless they are directly supported by tool output with concrete dates and prices.
 

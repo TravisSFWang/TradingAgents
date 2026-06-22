@@ -237,21 +237,26 @@ class TradingAgentsGraph:
             end = start + timedelta(days=holding_days + 7)  # buffer for weekends/holidays
             end_str = end.strftime("%Y-%m-%d")
 
-            stock = yf.Ticker(ticker).history(start=trade_date, end=end_str)
-            bench = yf.Ticker(benchmark).history(start=trade_date, end=end_str)
+            # A股结算改造：个股/指数收盘价走 ashare（本地通达信/Tushare），
+            # 不依赖 yfinance；非A股代码暂时跳过（用户要求暂不使用雅虎数据源）。
+            def _closes(sym):
+                try:
+                    from ashare_vendor.market_data import get_close_series
+                    s = get_close_series(sym, trade_date, end_str)
+                    if s is not None:
+                        return [float(x) for x in s.values]
+                except Exception as e:
+                    logger.warning("ashare 收盘序列失败 %s (%s)", sym, e)
+                return None  # 非A股：暂不回退 yfinance
 
-            if len(stock) < 2 or len(bench) < 2:
+            stock = _closes(ticker)
+            bench = _closes(benchmark)
+            if not stock or not bench or len(stock) < 2 or len(bench) < 2:
                 return None, None, None
 
             actual_days = min(holding_days, len(stock) - 1, len(bench) - 1)
-            raw = float(
-                (stock["Close"].iloc[actual_days] - stock["Close"].iloc[0])
-                / stock["Close"].iloc[0]
-            )
-            bench_ret = float(
-                (bench["Close"].iloc[actual_days] - bench["Close"].iloc[0])
-                / bench["Close"].iloc[0]
-            )
+            raw = float((stock[actual_days] - stock[0]) / stock[0])
+            bench_ret = float((bench[actual_days] - bench[0]) / bench[0])
             alpha = raw - bench_ret
             return raw, alpha, actual_days
         except Exception as e:
@@ -456,3 +461,18 @@ class TradingAgentsGraph:
     def process_signal(self, full_signal):
         """Process a signal to extract the core decision."""
         return self.signal_processor.process_signal(full_signal)
+
+
+# === ASHARE_CONTEXT_BEGIN (auto-generated, do not edit) ===
+try:
+    import sys as _as2_sys
+    from pathlib import Path as _As2Path
+    _as2_root = str(_As2Path(__file__).resolve().parents[2])
+    if _as2_root not in _as2_sys.path:
+        _as2_sys.path.insert(0, _as2_root)
+    from ashare_vendor.context_patch import apply_context_patch as _as2_ctx
+    _as2_ctx(TradingAgentsGraph)
+except Exception as _as2_e:
+    import logging as _as2_logging
+    _as2_logging.getLogger("ashare_vendor").warning(f"A股市场上下文补丁未生效: {_as2_e}")
+# === ASHARE_CONTEXT_END ===

@@ -26,6 +26,9 @@ from tradingagents.agents.utils.news_data_tools import (
 from tradingagents.agents.utils.market_data_validation_tools import (
     get_verified_market_snapshot
 )
+from tradingagents.agents.utils.intraday_structure_tools import (
+    get_intraday_structure
+)
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +46,17 @@ def get_language_instruction() -> str:
     lang = get_config().get("output_language", "English")
     if lang.strip().lower() == "english":
         return ""
-    return f" Write your entire response in {lang}."
+    # A股适配：在语言指令后追加全局文体约束，压住"conversational/compelling/
+    # dynamic debate"叠加中文长文产生的演讲腔。作为每个 agent 提示词末尾的直接
+    # 指令（位置靠后、recency 强），比注入 instrument_context 更能生效。
+    return (
+        f" Write your entire response in {lang}. Use a sober, professional "
+        "institutional-research register: lead each point with a specific number "
+        "or fact from the data, then state its implication. Do NOT use theatrical "
+        "rhetoric, dramatic metaphors, slogans, exclamation marks, or "
+        "second-person exhortations addressed to 'investors'. When you disagree, "
+        "attack the opponent's evidence and logic, not the tone. Be concise and "
+        "falsifiable over rhetorical flourish.")
 
 
 def _clean_identity_value(value: Any) -> Optional[str]:

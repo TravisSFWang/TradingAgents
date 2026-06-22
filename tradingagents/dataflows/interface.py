@@ -194,3 +194,18 @@ def route_to_vendor(method: str, *args, **kwargs):
         raise first_error
 
     raise RuntimeError(f"No available vendor for '{method}'")
+
+
+# === ASHARE_VENDOR_BEGIN (auto-generated, do not edit) ===
+try:
+    import sys as _as_sys
+    from pathlib import Path as _AsPath
+    _as_root = str(_AsPath(__file__).resolve().parents[2])
+    if _as_root not in _as_sys.path:
+        _as_sys.path.insert(0, _as_root)
+    from ashare_vendor import register as _ashare_register
+    _ashare_register()
+except Exception as _as_e:
+    import logging as _as_logging
+    _as_logging.getLogger("ashare_vendor").warning(f"A股适配包未生效: {_as_e}")
+# === ASHARE_VENDOR_END ===
